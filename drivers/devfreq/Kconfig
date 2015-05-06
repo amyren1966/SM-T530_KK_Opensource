@@ -29,6 +29,7 @@ if PM_DEVFREQ
 
 comment "DEVFREQ Governors"
 
+if CONFIG_DEVFREQ_SIMPLE_ONDEMAND
 config DEVFREQ_GOV_SIMPLE_ONDEMAND
 	tristate "Simple Ondemand"
 	help
@@ -37,6 +38,7 @@ config DEVFREQ_GOV_SIMPLE_ONDEMAND
 	  Simple-Ondemand should be able to provide busy/total counter
 	  values that imply the usage rate. A device may provide tuned
 	  values to the governor with data field at devfreq_add_device().
+endif
 
 config DEVFREQ_GOV_PERFORMANCE
 	tristate "Performance"
