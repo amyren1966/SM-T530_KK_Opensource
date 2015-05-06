@@ -94,7 +94,9 @@ struct cpufreq_policy {
 	cpumask_var_t		related_cpus; /* CPUs with any coordination */
 	unsigned int		shared_type; /* ANY or ALL affected CPUs
 						should set cpufreq */
-	unsigned int		cpu;    /* cpu nr of registered CPU */
+	unsigned int		cpu;    /* cpu nr of CPU managing this policy */
+	unsigned int		last_cpu; /* cpu nr of previous CPU that managed
+					   * this policy */
 	struct cpufreq_cpuinfo	cpuinfo;/* see above */
 
 	unsigned int		min;    /* in kHz */
@@ -102,9 +104,6 @@ struct cpufreq_policy {
 	unsigned int		cur;    /* in kHz, only needed if cpufreq
 					 * governors are used */
 	unsigned int            util;  /* CPU utilization at max frequency */
-#ifdef CONFIG_SEC_PM
-	unsigned int            load_at_max;  /* CPU utilization at max frequency */
-#endif
 	unsigned int		policy; /* see above */
 	struct cpufreq_governor	*governor; /* see below */
 
@@ -117,10 +116,11 @@ struct cpufreq_policy {
 	struct completion	kobj_unregister;
 };
 
-#define CPUFREQ_ADJUST		(0)
-#define CPUFREQ_INCOMPATIBLE	(1)
-#define CPUFREQ_NOTIFY		(2)
-#define CPUFREQ_START		(3)
+#define CPUFREQ_ADJUST			(0)
+#define CPUFREQ_INCOMPATIBLE		(1)
+#define CPUFREQ_NOTIFY			(2)
+#define CPUFREQ_START			(3)
+#define CPUFREQ_UPDATE_POLICY_CPU	(4)
 
 #define CPUFREQ_SHARED_TYPE_NONE (0) /* None */
 #define CPUFREQ_SHARED_TYPE_HW	 (1) /* HW does needed coordination */
@@ -217,6 +217,7 @@ void unlock_policy_rwsem_write(int cpu);
 
 #define CPUFREQ_RELATION_L 0  /* lowest frequency at or above target */
 #define CPUFREQ_RELATION_H 1  /* highest frequency below or at target */
+#define CPUFREQ_RELATION_C 2  /* closest frequency to target */
 
 struct freq_attr;
 
@@ -337,6 +338,7 @@ static inline unsigned int cpufreq_get(unsigned int cpu)
 #ifdef CONFIG_CPU_FREQ
 unsigned int cpufreq_quick_get(unsigned int cpu);
 unsigned int cpufreq_quick_get_max(unsigned int cpu);
+unsigned int cpufreq_quick_get_util(unsigned int cpu);
 #else
 static inline unsigned int cpufreq_quick_get(unsigned int cpu)
 {
@@ -346,71 +348,6 @@ static inline unsigned int cpufreq_quick_get_max(unsigned int cpu)
 {
 	return 0;
 }
-#endif
-
-#if defined (CONFIG_SEC_DVFS) || defined (CONFIG_CPU_FREQ_LIMIT_USERSPACE)
-enum {
-	BOOT_CPU = 0,
-#if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) \
-	|| defined(CONFIG_SEC_BERLUTI_PROJECT)|| defined(CONFIG_SEC_FRESCONEO_PROJECT) || defined(CONFIG_SEC_AFYON_PROJECT) \
-	|| defined(CONFIG_SEC_S3VE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_DEGAS_PROJECT) \
-	|| defined(CONFIG_SEC_HESTIA_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) || defined(CONFIG_SEC_GNOTE_PROJECT) \
-	|| defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT)
-	NON_BOOT_CPU,
-#endif
-};
-#if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) \
-	|| defined(CONFIG_SEC_BERLUTI_PROJECT)|| defined(CONFIG_SEC_FRESCONEO_PROJECT) || defined(CONFIG_SEC_AFYON_PROJECT) \
-	|| defined(CONFIG_SEC_S3VE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_DEGAS_PROJECT) \
-	|| defined(CONFIG_SEC_HESTIA_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) || defined(CONFIG_SEC_GNOTE_PROJECT) \
-	|| defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT)
-
-int get_max_freq(void);
-int get_min_freq(void);
-
-#define MAX_FREQ_LIMIT		get_max_freq() /* 1512000 */
-#define MIN_FREQ_LIMIT		get_min_freq() /* 384000 */
-#define MIN_TOUCH_LIMIT_SECOND 787200
-#define MIN_TOUCH_LIMIT		998400
-#define MAX_UNICPU_LIMIT	1190400
-
-#define UPDATE_NOW_BITS		0xFF
-#else
-#define MIN_TOUCH_LOW_LIMIT	1497600
-#define MIN_TOUCH_LIMIT		1728000
-#define MIN_TOUCH_HIGH_LIMIT	2457600
-#define MIN_CAMERA_LIMIT    998400
-#define MIN_TOUCH_LIMIT_SECOND	1190400
-#endif
-enum {
-	DVFS_NO_ID			= 0,
-
-	/* need to update now */
-	DVFS_TOUCH_ID			= 0x00000001,
-	DVFS_APPS_MIN_ID		= 0x00000002,
-	DVFS_APPS_MAX_ID		= 0x00000004,
-	DVFS_UNICPU_ID			= 0x00000008,
-	DVFS_LTETP_ID			= 0x00000010,
-	DVFS_CAMERA_ID		= 0x00000012,
-
-	/* DO NOT UPDATE NOW */
-	DVFS_THERMALD_ID		= 0x00000100,
-
-	DVFS_MAX_ID
-};
-
-
-int set_freq_limit(unsigned long id, unsigned int freq);
-#if defined(CONFIG_SEC_MILLET_PROJECT) || defined(CONFIG_SEC_MATISSE_PROJECT) || defined(CONFIG_SEC_VICTOR_PROJECT) \
-	|| defined(CONFIG_SEC_BERLUTI_PROJECT)|| defined(CONFIG_SEC_FRESCONEO_PROJECT) || defined(CONFIG_SEC_AFYON_PROJECT) \
-	|| defined(CONFIG_SEC_S3VE_PROJECT) || defined(CONFIG_SEC_ATLANTIC_PROJECT) || defined(CONFIG_SEC_DEGAS_PROJECT) \
-	|| defined(CONFIG_SEC_HESTIA_PROJECT) || defined(CONFIG_SEC_MEGA2_PROJECT) ||  defined(CONFIG_SEC_GNOTE_PROJECT) \
-	|| defined(CONFIG_SEC_T10_PROJECT) || defined(CONFIG_SEC_T8_PROJECT)
-unsigned int get_min_lock(void);
-unsigned int get_max_lock(void);
-void set_min_lock(int freq);
-void set_max_lock(int freq);
-#endif
 #endif
 
 
@@ -443,6 +380,9 @@ extern struct cpufreq_governor cpufreq_gov_conservative;
 #elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_INTERACTIVE)
 extern struct cpufreq_governor cpufreq_gov_interactive;
 #define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_interactive)
+#elif defined(CONFIG_CPU_FREQ_DEFAULT_GOV_SMARTASS2)
+extern struct cpufreq_governor cpufreq_gov_smartass2;
+#define CPUFREQ_DEFAULT_GOVERNOR	(&cpufreq_gov_smartass2)
 #endif
 
 
@@ -481,8 +421,8 @@ extern struct freq_attr cpufreq_freq_attr_scaling_available_freqs;
 
 void cpufreq_frequency_table_get_attr(struct cpufreq_frequency_table *table,
 				      unsigned int cpu);
+void cpufreq_frequency_table_update_policy_cpu(struct cpufreq_policy *policy);
 
 void cpufreq_frequency_table_put_attr(unsigned int cpu);
-
-
+const char *cpufreq_get_current_driver(void);
 #endif /* _LINUX_CPUFREQ_H */
